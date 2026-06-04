@@ -1,0 +1,91 @@
+{% extends "base.html" %}
+{% block title %}{{ client.name }} Dashboard{% endblock %}
+{% block content %}
+<nav class="bg-white border-b border-slate-200 px-6 py-3 flex items-center justify-between">
+    <div class="flex items-center gap-3">
+        <span class="text-2xl">{{ client.logo }}</span>
+        <h1 class="font-bold text-slate-800">{{ client.name }}</h1>
+    </div>
+    <div class="flex items-center gap-4">
+        <span class="text-sm text-slate-600">Olá, <strong>{{ user_name }}</strong></span>
+        <a href="{{ url_for('logout') }}" class="text-sm text-slate-500 hover:text-red-600 transition">Sair</a>
+    </div>
+</nav>
+
+<main class="max-w-6xl mx-auto px-6 py-8">
+    <div class="mb-6 flex items-center justify-between flex-wrap gap-3">
+        <div>
+            <h2 class="text-2xl font-bold text-slate-800">Dashboard de Resultados</h2>
+            <p class="text-slate-500 text-sm mt-1">Acompanhe seus números de marketing em tempo real.</p>
+        </div>
+        <div class="flex items-center gap-2 px-3 py-1.5 bg-amber-50 border border-amber-200 rounded-full">
+            <span class="w-2 h-2 bg-amber-400 rounded-full"></span>
+            <span class="text-xs text-amber-800">Versão inicial — dados serão conectados em breve</span>
+        </div>
+    </div>
+
+    <!-- KPIs (placeholder) -->
+    <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
+        <div class="bg-white rounded-xl p-5 border border-slate-200 shadow-sm">
+            <div class="flex items-center gap-2 text-sm text-slate-500">
+                <span>📈</span> Leads
+            </div>
+            <div class="text-3xl font-bold text-slate-300 mt-1">—</div>
+            <div class="text-xs text-slate-400 mt-1">aguardando dados</div>
+        </div>
+        <div class="bg-white rounded-xl p-5 border border-slate-200 shadow-sm">
+            <div class="flex items-center gap-2 text-sm text-slate-500">
+                <span>👆</span> Cliques
+            </div>
+            <div class="text-3xl font-bold text-slate-300 mt-1">—</div>
+            <div class="text-xs text-slate-400 mt-1">aguardando dados</div>
+        </div>
+        <div class="bg-white rounded-xl p-5 border border-slate-200 shadow-sm">
+            <div class="flex items-center gap-2 text-sm text-slate-500">
+                <span>💰</span> Gasto
+            </div>
+            <div class="text-3xl font-bold text-slate-300 mt-1">—</div>
+            <div class="text-xs text-slate-400 mt-1">aguardando dados</div>
+        </div>
+        <div class="bg-white rounded-xl p-5 border border-slate-200 shadow-sm">
+            <div class="flex items-center gap-2 text-sm text-slate-500">
+                <span>⚡</span> ROI
+            </div>
+            <div class="text-3xl font-bold text-slate-300 mt-1">—</div>
+            <div class="text-xs text-slate-400 mt-1">aguardando dados</div>
+        </div>
+    </div>
+
+    <!-- Status do tráfego pago -->
+    <div class="bg-white rounded-xl border border-slate-200 shadow-sm p-6 mb-6">
+        <h3 class="font-semibold text-slate-800 mb-3">📊 Status do tráfego pago</h3>
+        {% if client.paid_traffic %}
+            <p class="text-sm text-slate-600">Tráfego pago ativo. Métricas aparecendo em breve.</p>
+        {% else %}
+            <div class="flex items-start gap-3 p-4 bg-amber-50 border border-amber-200 rounded-lg">
+                <span class="text-2xl">💡</span>
+                <div>
+                    <p class="font-medium text-amber-900">Tráfego pago pausado no momento</p>
+                    <p class="text-sm text-amber-800 mt-1">Quando você ativar, as métricas de Meta Ads / Google Ads aparecem aqui automaticamente, em tempo real.</p>
+                </div>
+            </div>
+        {% endif %}
+    </div>
+
+    <!-- Seção orgânica (placeholder) -->
+    <div class="bg-white rounded-xl border border-slate-200 shadow-sm p-6 mb-6">
+        <h3 class="font-semibold text-slate-800 mb-3">🌱 Marketing orgânico (em breve)</h3>
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm text-slate-500">
+            <div class="p-3 bg-slate-50 rounded-lg">📱 Instagram: <span class="text-slate-300">—</span></div>
+            <div class="p-3 bg-slate-50 rounded-lg">⭐ Google Meu Negócio: <span class="text-slate-300">—</span></div>
+            <div class="p-3 bg-slate-50 rounded-lg">💬 Reviews: <span class="text-slate-300">—</span></div>
+        </div>
+        <p class="text-xs text-slate-400 mt-4">Em breve: dados automáticos de Instagram, Google Meu Negócio, e reviews.</p>
+    </div>
+
+    <div class="p-4 bg-indigo-50 border border-indigo-200 rounded-lg text-sm text-indigo-900">
+        <p class="font-semibold">🚀 Em construção — Dia 1 da Fase 1</p>
+        <p class="mt-1">Próximos passos: Patricia vai plugar seus dados reais (manual ou por API), adicionar gráficos e relatórios em PDF.</p>
+    </div>
+</main>
+{% endblock %}
