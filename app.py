@@ -2,93 +2,136 @@
 Marketing Hub - Patricia's Marketing Agency
 Sistema próprio multi-tenant para dashboards de resultados.
 
-Dia 1 (2026-06-04): esqueleto + auth básica + páginas de admin e cliente.
-Dados ainda são mock. Banco e integrações vêm nas próximas sessões.
+Histórico:
+- 2026-06-04 (Dia 1): esqueleto + auth + páginas de admin e cliente
+- 2026-06-05: deploy no Render.com (free) + feature /change-password
+- 2026-06-05: migração pra Supabase (Postgres) — senhas persistem!
 """
 
 from flask import Flask, render_template, request, redirect, url_for, session, flash
 from werkzeug.security import generate_password_hash, check_password_hash
 from functools import wraps
 from datetime import datetime
+from contextlib import contextmanager
 import os
+import psycopg2
+from psycopg2.extras import RealDictCursor
+from psycopg2.pool import ThreadedConnectionPool
 
 app = Flask(__name__)
 app.secret_key = os.environ.get('SECRET_KEY', 'dev-secret-trocar-em-producao-2026-change-me')
 
 
 # ─────────────────────────────────────────────────────────────
-# MOCK DATA — substituir por banco de dados nas próximas sessões
+# DATABASE — Supabase (Postgres) com connection pool
 # ─────────────────────────────────────────────────────────────
 
-USERS = {
-    'patricia@agencia.com': {
-        'password': generate_password_hash('admin123'),
-        'role': 'admin',
-        'name': 'Patricia',
-    },
-    'econoclub@cliente.com': {
-        'password': generate_password_hash('cliente123'),
-        'role': 'client',
-        'name': 'EconoClub',
-        'client_id': 'econoclub',
-    },
-    'benalex@cliente.com': {
-        'password': generate_password_hash('cliente123'),
-        'role': 'client',
-        'name': 'Benalex Cleaning',
-        'client_id': 'benalex',
-    },
-    'dyemys@cliente.com': {
-        'password': generate_password_hash('cliente123'),
-        'role': 'client',
-        'name': "DYEMY'S Painting",
-        'client_id': 'dyemys',
-    },
-}
+DB_URL = os.environ.get('DATABASE_URL')
+_pool = None
 
-CLIENTS = {
-    'econoclub': {
-        'name': 'EconoClub',
-        'logo': '🌱',
-        'color': '#10b981',
-        'paid_traffic': False,  # sem tráfego pago rodando no momento
-        'notes': 'Cliente-piloto da Fase 1. Migração Square → Stripe em andamento.',
-        'checklist': {
-            'total': 32,
-            'done': 0,
-            'in_progress': 0,
-            'file': 'CLIENTES/ECONOCLUB/CHECKLIST.md',
-        },
-    },
-    'benalex': {
-        'name': 'Benalex Cleaning Services',
-        'logo': '🧹',
-        'color': '#0099ff',
-        'paid_traffic': False,
-        'notes': 'GBP FINALIZADO 04/06. Endereço escondido (service area). 5 fotos enviadas (4 IA + logo). Descrição + serviços em inglês. Pronto pra entregar pro cliente.',
-        'checklist': {
-            'total': 41,
-            'done': 6,
-            'in_progress': 0,
-            'file': 'CLIENTES/BENALEX/CHECKLIST.md',
-            'logo_path': '../BENALEX/logo.png',
-        },
-    },
-    'dyemys': {
-        'name': "DYEMY'S Painting",
-        'logo': '🎨',
-        'color': '#1a2e4a',
-        'paid_traffic': False,
-        'notes': 'GBP FINALIZADO 04/06. Sem endereço (já correto). 5 fotos enviadas (4 IA + logo). Descrição + serviços em inglês. Pronto pra entregar pro cliente.',
-        'checklist': {
-            'total': 41,
-            'done': 6,
-            'in_progress': 0,
-            'file': 'CLIENTES/DYEMYS/CHECKLIST.md',
-            'logo_path': '../DYEMYS/logo.jpg',
-        },
-    },
-}
+def init_pool():
+    """Inicializa o pool de conexões. Chamado 1x no startup."""
+    global _pool
+    if _pool is not None:
+        return _pool
+    if not DB_URL:
+        raise RuntimeError(
+            "DATABASE_URL não configurada. "
+            "Configure no .env (dev) ou nas env vars do Render (prod)."
+        )
+    _pool = ThreadedConnectionPool(
+        minconn=1,
+        maxconn=5,
+        dsn=DB_URL,
+        sslmode='require',  # Supabase exige SSL
+    )
+    return _pool
+
+@contextmanager
+def get_db():
+    """Context manager que pega conexão do pool e devolve no fim."""
+    if _pool is None:
+        init_pool()
+    conn = _pool.getconn()
+    try:
+        yield conn
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        _pool.putconn(conn)
+
+
+def query_one(sql, params=()):
+    """SELECT que retorna 1 linha (dict) ou None."""
+    with get_db() as conn:
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute(sql, params)
+            return cur.fetchone()
+
+
+def query_all(sql, params=()):
+    """SELECT que retorna todas as linhas (lista de dicts)."""
+    with get_db() as conn:
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute(sql, params)
+            return cur.fetchall()
+
+
+def execute(sql, params=()):
+    """INSERT/UPDATE/DELETE que não retorna dados."""
+    with get_db() as conn:
+        with conn.cursor() as cur:
+            cur.execute(sql, params)
+            return cur.rowcount
+
+
+# ─────────────────────────────────────────────────────────────
+# DATA HELPERS — users e clients (substituem os dicts antigos)
+# ─────────────────────────────────────────────────────────────
+
+def get_user_by_email(email):
+    """Busca usuário pelo email. Retorna dict ou None."""
+    return query_one(
+        "SELECT id, email, password_hash, role, name, client_id "
+        "FROM users WHERE email = %s",
+        (email.lower(),)
+    )
+
+
+def get_user_by_id(user_id):
+    return query_one(
+        "SELECT id, email, password_hash, role, name, client_id "
+        "FROM users WHERE id = %s",
+        (user_id,)
+    )
+
+
+def update_user_password(email, new_password_hash):
+    return execute(
+        "UPDATE users SET password_hash = %s WHERE email = %s",
+        (new_password_hash, email.lower())
+    )
+
+
+def get_client_by_id(client_id):
+    """Busca cliente pelo id. Retorna dict ou None."""
+    return query_one(
+        "SELECT id, name, logo, color, paid_traffic, notes, "
+        "checklist_data, logo_path "
+        "FROM clients WHERE id = %s",
+        (client_id,)
+    )
+
+
+def get_all_clients():
+    """Lista todos os clientes (pro admin)."""
+    return query_all(
+        "SELECT id, name, logo, color, paid_traffic, notes, "
+        "checklist_data, logo_path "
+        "FROM clients ORDER BY name"
+    )
 
 
 # ─────────────────────────────────────────────────────────────
@@ -132,13 +175,20 @@ def login():
     if request.method == 'POST':
         email = request.form.get('email', '').strip().lower()
         password = request.form.get('password', '')
-        user = USERS.get(email)
-        if user and check_password_hash(user['password'], password):
-            session['user_email'] = email
+        try:
+            user = get_user_by_email(email)
+        except Exception as e:
+            app.logger.error(f'Database error during login: {e}')
+            flash('Erro temporário no servidor. Tenta de novo em 30s.', 'error')
+            return render_template('login.html')
+
+        if user and check_password_hash(user['password_hash'], password):
+            session['user_email'] = user['email']
             session['user_name'] = user['name']
             session['role'] = user['role']
             session['client_id'] = user.get('client_id')
             return redirect(url_for('home'))
+
         flash('Email ou senha incorretos.', 'error')
     return render_template('login.html')
 
@@ -158,9 +208,14 @@ def change_password():
         confirm_pw = request.form.get('confirm_password', '')
 
         user_email = session.get('user_email')
-        user = USERS.get(user_email)
+        try:
+            user = get_user_by_email(user_email)
+        except Exception as e:
+            app.logger.error(f'Database error in change_password: {e}')
+            flash('Erro temporário no servidor. Tenta de novo.', 'error')
+            return render_template('change_password.html')
 
-        if not user or not check_password_hash(user['password'], current_pw):
+        if not user or not check_password_hash(user['password_hash'], current_pw):
             flash('Current password is incorrect.', 'error')
             return render_template('change_password.html')
 
@@ -172,8 +227,14 @@ def change_password():
             flash('New password must be at least 6 characters.', 'error')
             return render_template('change_password.html')
 
-        # Update the password in memory
-        USERS[user_email]['password'] = generate_password_hash(new_pw)
+        # Update no banco
+        try:
+            update_user_password(user_email, generate_password_hash(new_pw))
+        except Exception as e:
+            app.logger.error(f'Database error updating password: {e}')
+            flash('Erro ao atualizar senha. Tenta de novo.', 'error')
+            return render_template('change_password.html')
+
         flash('Password changed successfully!', 'success')
         return redirect(url_for('home'))
 
@@ -184,9 +245,34 @@ def change_password():
 @login_required
 @admin_required
 def admin_home():
+    try:
+        clients_list = get_all_clients()
+        # Converte cada linha num dict com 'checklist' parseado
+        clients_dict = {}
+        for c in clients_list:
+            checklist = c.get('checklist_data') or {}
+            clients_dict[c['id']] = {
+                'name': c['name'],
+                'logo': c.get('logo') or '🏢',
+                'color': c.get('color') or '#6366f1',
+                'paid_traffic': c.get('paid_traffic', False),
+                'notes': c.get('notes', ''),
+                'checklist': {
+                    'total': checklist.get('total', 0),
+                    'done': checklist.get('done', 0),
+                    'in_progress': checklist.get('in_progress', 0),
+                    'file': checklist.get('file', ''),
+                    'logo_path': c.get('logo_path', ''),
+                },
+            }
+    except Exception as e:
+        app.logger.error(f'Database error in admin_home: {e}')
+        flash('Erro ao carregar clientes. Tenta de novo.', 'error')
+        clients_dict = {}
+
     return render_template(
         'admin_home.html',
-        clients=CLIENTS,
+        clients=clients_dict,
         user_name=session.get('user_name'),
         now=datetime.now(),
     )
@@ -196,13 +282,30 @@ def admin_home():
 @login_required
 def client_home():
     client_id = session.get('client_id')
-    if not client_id or client_id not in CLIENTS:
+    try:
+        client = get_client_by_id(client_id) if client_id else None
+    except Exception as e:
+        app.logger.error(f'Database error in client_home: {e}')
+        flash('Erro ao carregar dados. Tenta de novo.', 'error')
+        return redirect(url_for('logout'))
+
+    if not client:
         flash('Cliente não encontrado.', 'error')
         return redirect(url_for('logout'))
-    client = CLIENTS[client_id]
+
+    checklist = client.get('checklist_data') or {}
+
+    client_view = {
+        'name': client['name'],
+        'logo': client.get('logo') or '🏢',
+        'color': client.get('color') or '#6366f1',
+        'paid_traffic': client.get('paid_traffic', False),
+        'notes': client.get('notes', ''),
+    }
+
     return render_template(
         'client_home.html',
-        client=client,
+        client=client_view,
         user_name=session.get('user_name'),
         now=datetime.now(),
     )
@@ -215,4 +318,17 @@ def client_home():
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
     debug = os.environ.get('FLASK_DEBUG', '0') == '1'
+
+    # Inicializa o pool de conexões
+    if DB_URL:
+        try:
+            init_pool()
+            print('✓ Conexão com o banco estabelecida (Supabase)')
+        except Exception as e:
+            print(f'⚠️ Erro ao conectar no banco: {e}')
+            print('  Verifique se DATABASE_URL está configurada corretamente.')
+    else:
+        print('⚠️ DATABASE_URL não configurada.')
+        print('  Defina no .env ou como variável de ambiente.')
+
     app.run(debug=debug, host='0.0.0.0', port=port)
