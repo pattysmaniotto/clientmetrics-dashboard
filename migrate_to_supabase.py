@@ -1,50 +1,49 @@
 """
 migrate_to_supabase.py
-Migra dados mock do app.py pro Supabase + gera hashes de senha corretos.
+Migra dados mock do app.py pro Supabase via REST API.
 
-Uso: python migrate_to_supabase.py
-Requer: DATABASE_URL como env var (formato postgresql://user:pass@host:port/db)
+Uso: SUPABASE_KEY="..." python migrate_to_supabase.py
 """
 
 import os
 import sys
+from pathlib import Path
 from werkzeug.security import generate_password_hash
-import psycopg2
-from psycopg2.extras import RealDictCursor
+from dotenv import load_dotenv
+from supabase import create_client, Client
+
+# Carrega .env da mesma pasta do script
+load_dotenv(Path(__file__).parent / '.env')
+
+SUPABASE_URL = os.environ.get('SUPABASE_URL', 'https://gipuopmdksagqkuuastc.supabase.co')
+SUPABASE_KEY = os.environ.get('SUPABASE_KEY')
 
 
-def get_db_url():
-    """Pega a URL do banco. Em prod, vem do env var. Em dev, do .env."""
-    url = os.environ.get('DATABASE_URL')
-    if not url:
-        # Tenta ler do .env
-        try:
-            from dotenv import load_dotenv
-            load_dotenv()
-            url = os.environ.get('DATABASE_URL')
-        except ImportError:
-            pass
-    if not url:
-        print('ERRO: DATABASE_URL não definida.')
-        print('Configure no .env ou como variável de ambiente:')
-        print('  export DATABASE_URL="postgresql://postgres:senha@db.xxx.supabase.co:5432/postgres"')
+def get_client() -> Client:
+    if not SUPABASE_KEY:
+        print('ERRO: SUPABASE_KEY nao definida.')
+        print('Rode: SUPABASE_KEY="eyJ..." python migrate_to_supabase.py')
         sys.exit(1)
-    return url
+    return create_client(SUPABASE_URL, SUPABASE_KEY)
 
 
-def run_schema(conn):
-    """Cria as tabelas se não existirem."""
-    schema_path = os.path.join(os.path.dirname(__file__), 'supabase_schema.sql')
-    with open(schema_path, 'r', encoding='utf-8') as f:
-        sql = f.read()
-    with conn.cursor() as cur:
-        cur.execute(sql)
-    conn.commit()
-    print('✓ Schema criado/atualizado (tabelas users, clients, metrics)')
+def create_tables_manually(supabase):
+    """Cria as tabelas via SQL Editor (precisa rodar 1x no dashboard)."""
+    print()
+    print('=' * 60)
+    print('ATENCAO: ANTES DE RODAR ESSE SCRIPT,')
+    print('rode o conteudo de supabase_schema.sql no SQL Editor')
+    print('do Supabase (https://supabase.com/dashboard/project/_/sql)')
+    print('=' * 60)
+    print()
+    resp = input('Tabelas ja foram criadas? (s/n): ').strip().lower()
+    if resp not in ('s', 'sim', 'y', 'yes'):
+        print('Cria as tabelas primeiro e roda de novo.')
+        sys.exit(0)
 
 
-def insert_initial_data(conn):
-    """Insere/atualiza os 4 usuários e 3 clientes iniciais."""
+def insert_initial_data(supabase):
+    """Insere/atualiza os 4 usuarios e 3 clientes iniciais."""
     users = [
         ('patricia@agencia.com', 'admin123', 'admin', 'Patricia', None),
         ('econoclub@cliente.com', 'cliente123', 'client', 'EconoClub', 'econoclub'),
@@ -52,93 +51,97 @@ def insert_initial_data(conn):
         ('dyemys@cliente.com', 'cliente123', 'client', "DYEMY'S Painting", 'dyemys'),
     ]
 
-    with conn.cursor() as cur:
-        for email, password, role, name, client_id in users:
-            password_hash = generate_password_hash(password)
-            cur.execute("""
-                INSERT INTO users (email, password_hash, role, name, client_id)
-                VALUES (%s, %s, %s, %s, %s)
-                ON CONFLICT (email) DO UPDATE SET
-                    password_hash = EXCLUDED.password_hash,
-                    role = EXCLUDED.role,
-                    name = EXCLUDED.name,
-                    client_id = EXCLUDED.client_id
-            """, (email, password_hash, role, name, client_id))
-            print(f'  ✓ Usuário: {email}')
+    print('Inserindo usuarios...')
+    for email, password, role, name, client_id in users:
+        password_hash = generate_password_hash(password)
+        data = {
+            'email': email,
+            'password_hash': password_hash,
+            'role': role,
+            'name': name,
+            'client_id': client_id,
+        }
+        try:
+            # Tenta inserir; se ja existe, atualiza
+            supabase.table('users').upsert(data).execute()
+            print(f'  [OK] Usuario: {email}')
+        except Exception as e:
+            print(f'  [ERRO] {email}: {e}')
 
-        clients = [
-            ('econoclub', 'EconoClub', '🌱', '#10b981', False,
-             'Cliente-piloto da Fase 1. Migração Square → Stripe em andamento.',
-             '{"total": 32, "done": 0, "in_progress": 0}', None),
-            ('benalex', 'Benalex Cleaning Services', '🧹', '#0099ff', False,
-             'GBP FINALIZADO 04/06. Endereço escondido (service area). 5 fotos enviadas. Pronto pra entregar.',
-             '{"total": 41, "done": 6, "in_progress": 0}', '../BENALEX/logo.png'),
-            ('dyemys', "DYEMY'S Painting", '🎨', '#1a2e4a', False,
-             'GBP FINALIZADO 04/06. Sem endereço. 5 fotos enviadas. Pronto pra entregar.',
-             '{"total": 41, "done": 6, "in_progress": 0}', '../DYEMYS/logo.jpg'),
-        ]
+    clients = [
+        ('econoclub', 'EconoClub', '🌱', '#10b981', False,
+         'Cliente-piloto da Fase 1. Migracao Square -> Stripe em andamento.',
+         {'total': 32, 'done': 0, 'in_progress': 0}, None),
+        ('benalex', 'Benalex Cleaning Services', '🧹', '#0099ff', False,
+         'GBP FINALIZADO 04/06. Endereco escondido (service area). 5 fotos enviadas. Pronto pra entregar.',
+         {'total': 41, 'done': 6, 'in_progress': 0}, '../BENALEX/logo.png'),
+        ('dyemys', "DYEMY'S Painting", '🎨', '#1a2e4a', False,
+         'GBP FINALIZADO 04/06. Sem endereco. 5 fotos enviadas. Pronto pra entregar.',
+         {'total': 41, 'done': 6, 'in_progress': 0}, '../DYEMYS/logo.jpg'),
+    ]
 
-        for cid, name, logo, color, paid, notes, checklist_json, logo_path in clients:
-            cur.execute("""
-                INSERT INTO clients (id, name, logo, color, paid_traffic, notes, checklist_data, logo_path)
-                VALUES (%s, %s, %s, %s, %s, %s, %s::jsonb, %s)
-                ON CONFLICT (id) DO UPDATE SET
-                    name = EXCLUDED.name,
-                    logo = EXCLUDED.logo,
-                    color = EXCLUDED.color,
-                    paid_traffic = EXCLUDED.paid_traffic,
-                    notes = EXCLUDED.notes,
-                    checklist_data = EXCLUDED.checklist_data,
-                    logo_path = EXCLUDED.logo_path
-            """, (cid, name, logo, color, paid, notes, checklist_json, logo_path))
-            print(f'  ✓ Cliente: {name}')
+    print('Inserindo clientes...')
+    for cid, name, logo, color, paid, notes, checklist_json, logo_path in clients:
+        data = {
+            'id': cid,
+            'name': name,
+            'logo': logo,
+            'color': color,
+            'paid_traffic': paid,
+            'notes': notes,
+            'checklist_data': checklist_json,
+            'logo_path': logo_path,
+        }
+        try:
+            supabase.table('clients').upsert(data).execute()
+            print(f'  [OK] Cliente: {name}')
+        except Exception as e:
+            print(f'  [ERRO] {name}: {e}')
 
-    conn.commit()
-    print('✓ Dados iniciais inseridos/atualizados')
 
-
-def verify(conn):
-    """Mostra o que ficou no banco."""
-    with conn.cursor(cursor_factory=RealDictCursor) as cur:
-        cur.execute('SELECT email, role, name, client_id FROM users ORDER BY role, email')
-        users = cur.fetchall()
-        cur.execute('SELECT id, name, logo, color FROM clients ORDER BY id')
-        clients = cur.fetchall()
-
+def verify(supabase):
+    """Verifica o que ficou no banco."""
     print()
     print('=' * 60)
-    print('VERIFICAÇÃO FINAL:')
+    print('VERIFICACAO:')
     print('=' * 60)
-    print(f'\n✓ {len(users)} usuários no banco:')
-    for u in users:
+
+    users = supabase.table('users').select('email, role, name, client_id').order('role').execute()
+    print(f'\n[OK] {len(users.data)} usuarios:')
+    for u in users.data:
         print(f'   - {u["email"]} ({u["role"]}, {u["name"]})')
-    print(f'\n✓ {len(clients)} clientes no banco:')
-    for c in clients:
+
+    clients = supabase.table('clients').select('id, name, logo').order('id').execute()
+    print(f'\n[OK] {len(clients.data)} clientes:')
+    for c in clients.data:
         print(f'   - {c["id"]}: {c["name"]} {c["logo"]}')
 
 
 def main():
     print('=' * 60)
-    print('MIGRAÇÃO: Mock → Supabase (Postgres)')
+    print('MIGRACAO: Mock -> Supabase (REST API)')
     print('=' * 60)
 
-    db_url = get_db_url()
-    print(f'\nConectando ao banco...')
+    supabase = get_client()
 
-    # Supabase requer SSL
-    conn = psycopg2.connect(db_url, sslmode='require')
-    print('✓ Conectado!')
-
+    # Verifica se a tabela users existe tentando contar
     try:
-        run_schema(conn)
-        insert_initial_data(conn)
-        verify(conn)
-        print()
-        print('=' * 60)
-        print('✅ MIGRAÇÃO COMPLETA!')
-        print('=' * 60)
-    finally:
-        conn.close()
+        supabase.table('users').select('id', count='exact').limit(1).execute()
+    except Exception as e:
+        if 'relation' in str(e).lower() and 'does not exist' in str(e).lower():
+            print('Tabelas nao existem. Voce precisa rodar o SQL primeiro.')
+            create_tables_manually(supabase)
+        else:
+            print(f'Erro ao verificar tabelas: {e}')
+            sys.exit(1)
+
+    insert_initial_data(supabase)
+    verify(supabase)
+
+    print()
+    print('=' * 60)
+    print('[OK] MIGRACAO COMPLETA!')
+    print('=' * 60)
 
 
 if __name__ == '__main__':
