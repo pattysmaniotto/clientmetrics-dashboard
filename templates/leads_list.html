@@ -1,0 +1,73 @@
+{% extends "base.html" %}
+{% block title %}Prospecção - Leads{% endblock %}
+{% block content %}
+<nav class="bg-white border-b border-slate-200 px-6 py-3 flex items-center justify-between sticky top-0 z-10">
+    <div class="flex items-center gap-3">
+        <span class="text-2xl">🎯</span>
+        <h1 class="font-bold text-slate-800">Prospecção — Leads</h1>
+        <span class="px-2 py-0.5 text-xs bg-slate-100 text-slate-600 rounded-full">{{ total }} total</span>
+    </div>
+    <div class="flex items-center gap-3 text-sm">
+        <a href="{{ url_for('prospection_dashboard') }}" class="text-slate-500 hover:text-indigo-600">📊 Dashboard</a>
+        <a href="{{ url_for('leads_upload') }}" class="text-slate-500 hover:text-indigo-600">📤 Upload CSV</a>
+        <a href="{{ url_for('lead_new') }}" class="bg-indigo-600 text-white px-3 py-1.5 rounded-lg hover:bg-indigo-700">+ Novo lead</a>
+        <a href="{{ url_for('admin_home') }}" class="text-slate-500 hover:text-indigo-600">← Admin</a>
+    </div>
+</nav>
+
+<div class="px-6 py-6">
+    <div class="mb-4 text-sm text-slate-600">
+        💡 <strong>Como usar:</strong> click no card do lead pra abrir detalhes. Use os botões de mudar status pra mover pelo funil.
+    </div>
+
+    <!-- Kanban Board -->
+    <div class="flex gap-4 overflow-x-auto pb-6">
+        {% for status in statuses %}
+        {% set leads_in_col = leads_by_status[status] %}
+        <div class="flex-shrink-0 w-72 bg-slate-100 rounded-xl p-3">
+            <div class="flex items-center justify-between mb-3 px-1">
+                <h3 class="text-sm font-semibold text-slate-700 flex items-center gap-1">
+                    <span>{{ status_labels[status][0] }}</span>
+                    <span>{{ status_labels[status][1] }}</span>
+                </h3>
+                <span class="text-xs font-bold text-slate-500 bg-white px-2 py-0.5 rounded-full">{{ leads_in_col|length }}</span>
+            </div>
+
+            <div class="space-y-2 min-h-[100px]">
+                {% for lead in leads_in_col %}
+                <a href="{{ url_for('lead_detail', lead_id=lead['id']) }}"
+                   class="block bg-white rounded-lg p-3 shadow-sm border border-slate-200 hover:shadow-md hover:border-indigo-300 transition">
+                    <div class="flex items-start justify-between mb-1">
+                        <div class="font-medium text-slate-800 text-sm truncate">
+                            {{ lead.get('name') or '(sem nome)' }}
+                        </div>
+                        <div class="text-xs text-slate-400 ml-2 flex-shrink-0">
+                            {% if lead.get('last_contact_at') %}
+                            ✓ Contatado
+                            {% endif %}
+                        </div>
+                    </div>
+                    <div class="text-xs text-slate-500 mb-2">📱 {{ lead['phone'] }}</div>
+                    {% if lead.get('city') %}
+                    <div class="text-xs text-slate-500 mb-1">📍 {{ lead['city'] }}</div>
+                    {% endif %}
+                    {% if lead.get('tags') and lead['tags']|length > 0 %}
+                    <div class="flex flex-wrap gap-1 mt-2">
+                        {% for tag in lead['tags'][:3] %}
+                        <span class="text-xs px-1.5 py-0.5 bg-slate-100 text-slate-600 rounded">#{{ tag }}</span>
+                        {% endfor %}
+                    </div>
+                    {% endif %}
+                    {% if lead.get('estimated_value') %}
+                    <div class="text-xs text-green-700 mt-2">💰 ${{ "%.0f"|format(lead['estimated_value']) }}</div>
+                    {% endif %}
+                </a>
+                {% else %}
+                <div class="text-xs text-slate-400 text-center py-6">vazio</div>
+                {% endfor %}
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+</div>
+{% endblock %}

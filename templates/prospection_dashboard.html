@@ -1,0 +1,98 @@
+{% extends "base.html" %}
+{% block title %}Prospecção - Dashboard{% endblock %}
+{% block content %}
+<nav class="bg-white border-b border-slate-200 px-6 py-3 flex items-center justify-between">
+    <div class="flex items-center gap-3">
+        <span class="text-2xl">🎯</span>
+        <h1 class="font-bold text-slate-800">Dashboard de Prospecção</h1>
+    </div>
+    <div class="flex items-center gap-3 text-sm">
+        <a href="{{ url_for('leads_list') }}" class="text-slate-500 hover:text-indigo-600">📋 Kanban</a>
+        <a href="{{ url_for('leads_upload') }}" class="text-slate-500 hover:text-indigo-600">📤 Upload CSV</a>
+        <a href="{{ url_for('lead_new') }}" class="bg-indigo-600 text-white px-3 py-1.5 rounded-lg hover:bg-indigo-700">+ Novo lead</a>
+        <a href="{{ url_for('admin_home') }}" class="text-slate-500 hover:text-indigo-600">← Admin</a>
+    </div>
+</nav>
+
+<div class="max-w-6xl mx-auto px-6 py-6">
+    <!-- KPIs principais -->
+    <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
+        <div class="bg-white rounded-xl p-5 border border-slate-200 shadow-sm">
+            <div class="text-sm text-slate-500">Total de leads</div>
+            <div class="text-3xl font-bold text-slate-800 mt-1">{{ stats.total }}</div>
+            <div class="text-xs text-slate-400 mt-1">todos os status</div>
+        </div>
+        <div class="bg-white rounded-xl p-5 border border-slate-200 shadow-sm">
+            <div class="text-sm text-slate-500">Pipeline ativo</div>
+            <div class="text-3xl font-bold text-indigo-600 mt-1">${{ "%.0f"|format(stats.pipeline_value) }}</div>
+            <div class="text-xs text-slate-400 mt-1">em_contato → proposta</div>
+        </div>
+        <div class="bg-white rounded-xl p-5 border border-slate-200 shadow-sm">
+            <div class="text-sm text-slate-500">Ganho (receita)</div>
+            <div class="text-3xl font-bold text-green-600 mt-1">${{ "%.0f"|format(stats.won_value) }}</div>
+            <div class="text-xs text-slate-400 mt-1">{{ stats.won_count }} cliente(s)</div>
+        </div>
+        <div class="bg-white rounded-xl p-5 border border-slate-200 shadow-sm">
+            <div class="text-sm text-slate-500">Taxa de conversão</div>
+            <div class="text-3xl font-bold text-purple-600 mt-1">{{ stats.conversion_rate }}%</div>
+            <div class="text-xs text-slate-400 mt-1">novo → ganho</div>
+        </div>
+    </div>
+
+    <!-- Funil visual -->
+    <div class="bg-white rounded-xl p-6 border border-slate-200 shadow-sm mb-6">
+        <h2 class="font-bold text-slate-800 mb-4">📊 Funil de prospecção</h2>
+        <div class="space-y-2">
+            {% for status in ['novo', 'em_contato', 'coletando', 'analisado', 'proposta', 'ganho', 'perdido'] %}
+            {% set count = stats.by_status.get(status, 0) %}
+            {% set max_count = stats.total if stats.total > 0 else 1 %}
+            {% set pct = (count / max_count * 100)|round(0, 'floor') if max_count > 0 else 0 %}
+            <div class="flex items-center gap-3">
+                <div class="w-32 text-sm text-slate-700 flex items-center gap-1">
+                    <span>{{ status_labels[status][0] }}</span>
+                    <span class="font-medium">{{ status_labels[status][1] }}</span>
+                </div>
+                <div class="flex-1 bg-slate-100 rounded-full h-6 overflow-hidden">
+                    <div class="bg-gradient-to-r from-indigo-500 to-purple-500 h-6 flex items-center justify-end px-3 text-xs text-white font-medium"
+                         style="width: {{ pct }}%">
+                        {{ count }}
+                    </div>
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+
+    <!-- Leads recentes -->
+    <div class="bg-white rounded-xl p-6 border border-slate-200 shadow-sm">
+        <div class="flex items-center justify-between mb-4">
+            <h2 class="font-bold text-slate-800">🆕 Leads recentes</h2>
+            <a href="{{ url_for('leads_list') }}" class="text-sm text-indigo-600 hover:underline">Ver todos →</a>
+        </div>
+
+        {% if leads_recent %}
+        <div class="space-y-2">
+            {% for lead in leads_recent %}
+            <a href="{{ url_for('lead_detail', lead_id=lead['id']) }}" class="flex items-center gap-3 p-3 rounded-lg hover:bg-slate-50 transition">
+                <div class="text-2xl">{{ status_labels[lead['status']][0] }}</div>
+                <div class="flex-1">
+                    <div class="font-medium text-slate-800">{{ lead.get('name') or '(sem nome)' }}</div>
+                    <div class="text-xs text-slate-500">📱 {{ lead['phone'] }} · {{ status_labels[lead['status']][1] }} · {{ lead['created_at'][:10] }}</div>
+                </div>
+                {% if lead.get('estimated_value') %}
+                <div class="text-sm text-green-700 font-medium">${{ "%.0f"|format(lead['estimated_value']) }}</div>
+                {% endif %}
+            </a>
+            {% endfor %}
+        </div>
+        {% else %}
+        <div class="text-center py-8 text-slate-400">
+            <p class="mb-3">Nenhum lead ainda</p>
+            <a href="{{ url_for('leads_upload') }}" class="inline-block bg-indigo-600 text-white px-4 py-2 rounded-lg hover:bg-indigo-700">
+                📤 Subir primeiro CSV
+            </a>
+        </div>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}

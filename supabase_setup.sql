@@ -49,12 +49,101 @@ CREATE TABLE IF NOT EXISTS metrics (
     created_at TIMESTAMPTZ DEFAULT now()
 );
 
+-- =====================================================
+-- PROSPECÇÃO — Cold outreach + CRM
+-- Adicionado em 06/06/2026
+-- =====================================================
+
+-- Tabela de leads (cold list de telefones)
+CREATE TABLE IF NOT EXISTS leads (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    phone TEXT NOT NULL,
+    name TEXT,
+    email TEXT,
+    address TEXT,
+    city TEXT,
+    website TEXT,
+    instagram TEXT,
+    facebook TEXT,
+    google_business_url TEXT,
+    source TEXT,  -- 'cold_call', 'indicacao', 'site_form', 'manual', 'csv_upload'
+    status TEXT NOT NULL DEFAULT 'novo' CHECK (status IN (
+        'novo', 'em_contato', 'coletando', 'analisado', 'proposta', 'ganho', 'perdido'
+    )),
+    notes TEXT,
+    tags TEXT[],
+    estimated_value NUMERIC(10,2),
+    last_contact_at TIMESTAMPTZ,
+    created_at TIMESTAMPTZ DEFAULT now()
+);
+
+-- Log de atividades do lead
+CREATE TABLE IF NOT EXISTS lead_activities (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    lead_id UUID NOT NULL REFERENCES leads(id) ON DELETE CASCADE,
+    type TEXT NOT NULL,  -- 'message_sent', 'reply', 'info_added', 'status_change', 'proposal_sent', 'note'
+    content TEXT,
+    created_at TIMESTAMPTZ DEFAULT now()
+);
+
+-- Templates de mensagem (cold, follow-up, proposta)
+CREATE TABLE IF NOT EXISTS message_templates (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    name TEXT NOT NULL,
+    channel TEXT NOT NULL CHECK (channel IN ('whatsapp', 'sms', 'email')),
+    category TEXT,  -- 'cold_outreach', 'follow_up', 'proposal', 'info_request', etc
+    body TEXT NOT NULL,
+    is_active BOOLEAN DEFAULT true,
+    created_at TIMESTAMPTZ DEFAULT now()
+);
+
+-- Análises automáticas (quando lead entra em "analisado")
+CREATE TABLE IF NOT EXISTS lead_analyses (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    lead_id UUID NOT NULL REFERENCES leads(id) ON DELETE CASCADE,
+    website_score INT,  -- 0-100
+    ig_exists BOOLEAN,
+    ig_followers INT,
+    fb_exists BOOLEAN,
+    gbp_exists BOOLEAN,
+    gbp_rating NUMERIC(2,1),
+    gbp_reviews_count INT,
+    opportunities JSONB,  -- [{type: 'no_gbp', priority: 'high', description: '...'}, ...]
+    services_recommended TEXT[],
+    summary TEXT,
+    analyzed_at TIMESTAMPTZ DEFAULT now()
+);
+
+-- =====================================================
 -- Índices
+-- =====================================================
+
 CREATE INDEX IF NOT EXISTS idx_metrics_client_id ON metrics(client_id);
 CREATE INDEX IF NOT EXISTS idx_metrics_date ON metrics(date);
 CREATE INDEX IF NOT EXISTS idx_metrics_source ON metrics(source);
 CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
 CREATE INDEX IF NOT EXISTS idx_users_client_id ON users(client_id);
+
+CREATE INDEX IF NOT EXISTS idx_leads_status ON leads(status);
+CREATE INDEX IF NOT EXISTS idx_leads_phone ON leads(phone);
+CREATE INDEX IF NOT EXISTS idx_leads_created_at ON leads(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_lead_activities_lead_id ON lead_activities(lead_id);
+CREATE INDEX IF NOT EXISTS idx_lead_analyses_lead_id ON lead_analyses(lead_id);
+
+-- =====================================================
+-- Templates iniciais (cold outreach padrão)
+-- =====================================================
+
+INSERT INTO message_templates (name, channel, category, body) VALUES
+('Cold outreach inicial (WhatsApp)', 'whatsapp', 'cold_outreach',
+ 'Oi, {{nome}}! Tudo bem?\n\nSou a Patricia, trabalho com marketing digital e ajudo negócios como o seu a aparecer mais no Google e Instagram.\n\nPosso fazer uma análise gratuita de como sua empresa aparece online? Se tiver, me passa seu Instagram e site que em 48h te mando um relatório personalizado com 3 pontos pra melhorar.\n\nSem compromisso! Vale?'),
+('Follow-up 1 (3 dias depois)', 'whatsapp', 'follow_up',
+ 'Oi, {{nome}}! Sou eu, Patricia, do marketing.\n\nMandei mensagem dia {{data_envio}} oferecendo uma análise gratuita. Conseguiu ver?\n\nSe quiser, me responde com seu Instagram ou site que eu mando o relatório. 🙂'),
+('Coleta de info', 'whatsapp', 'info_request',
+ 'Oi, {{nome}}! Pra eu fechar a análise, me passa:\n\n1. Instagram (se tiver)\n2. Site (se tiver)\n3. Link do Google Maps do seu negócio\n\nValeu!'),
+('Envio da análise + proposta', 'whatsapp', 'proposal',
+ 'Oi, {{nome}}! Aqui tá o relatório que prometi: [link]\n\n3 pontos que vi de oportunidade pra você:\n1. {{oportunidade_1}}\n2. {{oportunidade_2}}\n3. {{oportunidade_3}}\n\nQuer agendar 15min pra eu te mostrar como resolver?\n\nPatricia')
+ON CONFLICT DO NOTHING;
 
 -- NOTA: dados iniciais (4 users + 3 clients) são inseridos via migrate_to_supabase.py
 -- depois das tabelas existirem.

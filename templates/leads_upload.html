@@ -1,0 +1,56 @@
+{% extends "base.html" %}
+{% block title %}Upload CSV de Leads{% endblock %}
+{% block content %}
+<nav class="bg-white border-b border-slate-200 px-6 py-3 flex items-center justify-between">
+    <div class="flex items-center gap-3">
+        <span class="text-2xl">📤</span>
+        <h1 class="font-bold text-slate-800">Upload CSV de leads</h1>
+    </div>
+    <div class="flex items-center gap-3 text-sm">
+        <a href="{{ url_for('leads_list') }}" class="text-slate-500 hover:text-indigo-600">← Voltar pro Kanban</a>
+    </div>
+</nav>
+
+<div class="max-w-3xl mx-auto px-4 py-8">
+    <div class="bg-white rounded-2xl shadow-sm p-6 md:p-8">
+        <h2 class="text-xl font-bold text-slate-800 mb-2">Importar lista de telefones</h2>
+        <p class="text-slate-500 text-sm mb-6">Sobe um CSV com sua lista de leads (cold list). A gente cria um lead por linha, status "novo", pronto pra você começar a prospectar.</p>
+
+        {% with messages = get_flashed_messages(with_categories=true) %}
+            {% if messages %}
+                {% for category, message in messages %}
+                <div class="mb-4 p-3 rounded-lg text-sm
+                    {% if category == 'error' %}bg-red-50 text-red-700 border border-red-200
+                    {% else %}bg-green-50 text-green-700 border border-green-200{% endif %}">
+                    {{ message }}
+                </div>
+                {% endfor %}
+            {% endif %}
+        {% endwith %}
+
+        <form method="POST" enctype="multipart/form-data" action="{{ url_for('leads_upload') }}" class="space-y-4">
+            <div class="border-2 border-dashed border-slate-300 rounded-lg p-8 text-center">
+                <input type="file" name="file" accept=".csv" required
+                    class="block w-full text-sm text-slate-500
+                           file:mr-4 file:py-2 file:px-4
+                           file:rounded-full file:border-0
+                           file:text-sm file:font-semibold
+                           file:bg-indigo-50 file:text-indigo-700
+                           hover:file:bg-indigo-100">
+                <p class="text-xs text-slate-400 mt-2">Apenas .csv (UTF-8)</p>
+            </div>
+            <button type="submit" class="bg-gradient-to-r from-indigo-600 to-purple-600 text-white font-semibold px-6 py-2.5 rounded-lg hover:opacity-90 transition">
+                📤 Importar leads
+            </button>
+        </form>
+
+        <div class="mt-8 p-4 bg-slate-50 rounded-lg">
+            <h3 class="font-semibold text-slate-800 mb-2 text-sm">📋 Formato do CSV esperado:</h3>
+            <pre class="text-xs text-slate-600 overflow-x-auto">phone,name,email,city,address,tags,estimated_value
++15551234567,John Smith,john@restaurant.com,Miami,123 Main St,restaurant;italian,1500
++15559876543,Jane Doe,,Los Angeles,456 Oak Ave,ecommerce,800</pre>
+            <p class="text-xs text-slate-500 mt-2"><strong>phone</strong> é obrigatório. Os outros campos são opcionais. Aceita variações: <code>telefone</code> ou <code>phone</code>, <code>nome</code> ou <code>name</code>, etc.</p>
+        </div>
+    </div>
+</div>
+{% endblock %}
