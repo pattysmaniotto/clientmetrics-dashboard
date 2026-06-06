@@ -115,6 +115,59 @@ CREATE TABLE IF NOT EXISTS lead_analyses (
 );
 
 -- =====================================================
+-- CHECKLIST DE MELHORIAS POR CLIENTE (06/06/2026)
+-- Patricia vê e marca no admin
+-- =====================================================
+
+CREATE TABLE IF NOT EXISTS client_checklist_items (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    client_id TEXT NOT NULL REFERENCES clients(id) ON DELETE CASCADE,
+    category TEXT NOT NULL,  -- 'instagram', 'facebook', 'gbp', 'site', 'meta_ads', 'google_ads', 'reviews', 'custom'
+    title TEXT NOT NULL,
+    description TEXT,
+    status TEXT DEFAULT 'pending' CHECK (status IN ('pending', 'in_progress', 'done', 'blocked')),
+    priority TEXT DEFAULT 'medium' CHECK (priority IN ('low', 'medium', 'high', 'urgent')),
+    assigned_to TEXT,  -- 'patricia', 'claude', 'client'
+    due_date DATE,
+    completed_at TIMESTAMPTZ,
+    notes TEXT,
+    created_at TIMESTAMPTZ DEFAULT now(),
+    updated_at TIMESTAMPTZ DEFAULT now()
+);
+
+-- Integrações por cliente (status de cada plataforma conectada)
+CREATE TABLE IF NOT EXISTS client_integrations (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    client_id TEXT NOT NULL REFERENCES clients(id) ON DELETE CASCADE,
+    platform TEXT NOT NULL,  -- 'meta_ads', 'google_ads', 'gbp', 'instagram', 'facebook', 'ga4', 'site'
+    status TEXT DEFAULT 'disconnected' CHECK (status IN ('disconnected', 'pending_auth', 'connected', 'error')),
+    access_token TEXT,  -- em produção: encriptar
+    refresh_token TEXT,
+    account_id TEXT,  -- ad account ID, page ID, location ID, etc
+    account_name TEXT,  -- nome human-readable
+    last_sync_at TIMESTAMPTZ,
+    last_error TEXT,
+    connected_at TIMESTAMPTZ,
+    expires_at TIMESTAMPTZ,
+    created_at TIMESTAMPTZ DEFAULT now(),
+    updated_at TIMESTAMPTZ DEFAULT now(),
+    UNIQUE(client_id, platform)
+);
+
+-- Métricas diárias expandidas (mais flexível que a tabela metrics genérica)
+CREATE TABLE IF NOT EXISTS client_metrics_daily (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    client_id TEXT NOT NULL REFERENCES clients(id) ON DELETE CASCADE,
+    date DATE NOT NULL,
+    source TEXT NOT NULL,  -- 'meta_ads', 'google_ads', 'gbp', 'instagram', 'facebook', 'ga4', 'site'
+    metric_name TEXT NOT NULL,  -- 'leads', 'clicks', 'spend', 'impressions', 'reach', 'followers', 'reviews', 'views', 'calls', etc
+    metric_value NUMERIC,
+    extra_data JSONB,
+    created_at TIMESTAMPTZ DEFAULT now(),
+    UNIQUE(client_id, date, source, metric_name)
+);
+
+-- =====================================================
 -- Índices
 -- =====================================================
 
@@ -129,6 +182,13 @@ CREATE INDEX IF NOT EXISTS idx_leads_phone ON leads(phone);
 CREATE INDEX IF NOT EXISTS idx_leads_created_at ON leads(created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_lead_activities_lead_id ON lead_activities(lead_id);
 CREATE INDEX IF NOT EXISTS idx_lead_analyses_lead_id ON lead_analyses(lead_id);
+
+CREATE INDEX IF NOT EXISTS idx_client_checklist_client_id ON client_checklist_items(client_id);
+CREATE INDEX IF NOT EXISTS idx_client_checklist_status ON client_checklist_items(status);
+CREATE INDEX IF NOT EXISTS idx_client_integrations_client_id ON client_integrations(client_id);
+CREATE INDEX IF NOT EXISTS idx_client_integrations_platform ON client_integrations(platform);
+CREATE INDEX IF NOT EXISTS idx_client_metrics_daily_client_date ON client_metrics_daily(client_id, date DESC);
+CREATE INDEX IF NOT EXISTS idx_client_metrics_daily_source ON client_metrics_daily(source);
 
 -- =====================================================
 -- Templates iniciais (cold outreach padrão)

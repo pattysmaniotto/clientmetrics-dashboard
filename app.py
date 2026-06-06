@@ -264,6 +264,318 @@ def get_prospection_stats():
 
 
 # ─────────────────────────────────────────────────────────────
+# CHECKLIST HELPERS — melhorias por cliente
+# ─────────────────────────────────────────────────────────────
+
+CHECKLIST_STATUSES = {
+    'pending':     ('⏳', 'Pendente'),
+    'in_progress': ('🔄', 'Em andamento'),
+    'done':        ('✅', 'Concluído'),
+    'blocked':     ('🚫', 'Bloqueado'),
+}
+
+CHECKLIST_CATEGORIES = {
+    'instagram':  ('📱', 'Instagram'),
+    'facebook':   ('📘', 'Facebook'),
+    'gbp':        ('⭐', 'Google Meu Negócio'),
+    'site':       ('🌐', 'Site / Blog'),
+    'meta_ads':   ('🎯', 'Meta Ads'),
+    'google_ads': ('🔎', 'Google Ads'),
+    'reviews':    ('💬', 'Reviews'),
+    'custom':     ('📝', 'Customizado'),
+}
+
+# Template padrão de auditoria — 32 itens (9 Instagram + 6 Facebook + 7 GBP + 10 Site)
+# Vem do ROADMAP-AGENCIA-2026.md (Fase 2). Usado pra popular checklist de qualquer cliente
+# após auditoria inicial. Items são marcados com 'from_template' pra distinguir dos custom.
+TEMPLATE_CHECKLIST = [
+    # Instagram (9)
+    ('instagram', 'Bio otimizada (com CTA claro)', 'Bio com proposta de valor + CTA tipo "link pra agendar" ou "chama no DM"'),
+    ('instagram', 'Foto de perfil profissional', 'Logo ou foto bem iluminada, sem crop, formato circular ok'),
+    ('instagram', 'Destaques salvos e organizados', 'Capa personalizada em cada destaque, ordem lógica (Sobre, Serviços, Depoimentos, etc)'),
+    ('instagram', 'Link na bio funcional', 'Linktree ou link direto pro WhatsApp/site funcionando'),
+    ('instagram', 'Frequência ≥ 3 posts/semana', 'Mínimo de 3 posts por semana, com mix de formatos'),
+    ('instagram', 'Mix de conteúdo (reels, carrossel, stories)', 'Variar entre reels (alcance), carrossel (educação), stories (relacionamento)'),
+    ('instagram', 'Hashtags locais + de nicho', 'Mix de hashtags grandes (5), médias (10) e pequenas (15) + locais (cidade/região)'),
+    ('instagram', 'Resposta a DMs < 1 hora', 'Tempo de resposta médio inferior a 1h (Meta favorece no algoritmo)'),
+    ('instagram', 'ManyChat / resposta automática configurada', 'DM automática quando lead comenta palavra-chave ou manda primeira mensagem'),
+
+    # Facebook (6)
+    ('facebook', 'Página completa (about, contact, hours)', 'Todas as seções preenchidas: sobre, contato, horário, endereço, missão'),
+    ('facebook', 'Foto de capa profissional', 'Capa 820x312 com chamada visual e CTA'),
+    ('facebook', 'Botão de ação configurado', 'Botão "Enviar mensagem", "Ligar" ou "Saiba mais" ativo'),
+    ('facebook', 'Reviews respondidos (todos)', 'Resposta em 100% das avaliações, incluindo as negativas'),
+    ('facebook', 'Bot de Messenger ativo', 'Resposta automática no Messenger com menu de opções'),
+    ('facebook', 'Frequência de post similar ao IG', 'Cruzar conteúdo entre IG e FB (mesma data de post)'),
+
+    # Google Meu Negócio (7)
+    ('gbp', 'Perfil 100% preenchido (categorias, descrição, atributos)', 'Categorias principal + secundárias, descrição com palavras-chave, atributos relevantes'),
+    ('gbp', 'Horários corretos', 'Horários de funcionamento atualizados, incluindo feriados e exceções'),
+    ('gbp', 'Fotos reais (mínimo 10)', 'Fotos do estabelecimento, equipe, produtos/serviços, antes/depois — mínimo 10'),
+    ('gbp', 'Posts GBP ativos (≥ 1x/mês)', 'Publicar 1 post por semana (ofertas, eventos, novidades)'),
+    ('gbp', 'Reviews respondidos 100%', 'Resposta em todas as avaliações com tom profissional e personalizado'),
+    ('gbp', 'Q&A preenchido', 'FAQ no GBP com perguntas frequentes respondidas pelo próprio dono'),
+    ('gbp', 'NAP (Nome/Endereço/Telefone) igual ao site', 'Nome, endereço e telefone IDÊNTICOS entre GBP, site, redes sociais e diretórios'),
+
+    # Site / Blog (10)
+    ('site', 'Carrega em < 3s no celular', 'Testar com PageSpeed Insights — meta 90+ mobile'),
+    ('site', 'SSL ativo (https)', 'Certificado válido, todo o site em HTTPS (sem mixed content)'),
+    ('site', 'CTA visível acima da dobra', 'Botão de ação principal no topo da home (WhatsApp, agendar, comprar)'),
+    ('site', 'Formulário de contato funcional', 'Formulário envia email ou gera lead no CRM'),
+    ('site', 'Google Analytics 4 instalado', 'Tag GA4 no head, eventos de conversão configurados'),
+    ('site', 'Schema markup local', 'Schema LocalBusiness com NAP, horários, geo coordinates'),
+    ('site', 'Sitemap + robots.txt', 'sitemap.xml atualizado e robots.txt permitindo indexação'),
+    ('site', 'Title tag + meta description por página', 'Cada página tem title único + meta description com keyword'),
+    ('site', 'Página "sobre" + prova social', 'Página Sobre com história, equipe, depoimentos/clientes'),
+    ('site', 'Blog ativo (≥ 1 post/mês)', 'Blog com artigos de SEO local ou autoridade no nicho'),
+]
+
+
+def get_checklist_items(client_id, status=None):
+    """Lista checklist items de um cliente, opcionalmente filtrados por status."""
+    try:
+        supabase = get_supabase()
+        query = supabase.table('client_checklist_items').select('*').eq('client_id', client_id).order('created_at', desc=True)
+        if status:
+            query = query.eq('status', status)
+        result = query.execute()
+        return result.data or []
+    except Exception as e:
+        app.logger.error(f'Supabase error in get_checklist_items: {e}')
+        return []
+
+
+def add_checklist_item(client_id, category, title, description=None, priority='medium', assigned_to=None, due_date=None):
+    """Adiciona item ao checklist de um cliente."""
+    try:
+        supabase = get_supabase()
+        data = {
+            'client_id': client_id,
+            'category': category,
+            'title': title,
+            'status': 'pending',
+            'priority': priority,
+        }
+        if description:
+            data['description'] = description
+        if assigned_to:
+            data['assigned_to'] = assigned_to
+        if due_date:
+            data['due_date'] = due_date
+        result = supabase.table('client_checklist_items').insert(data).execute()
+        return result.data[0] if result.data else None
+    except Exception as e:
+        app.logger.error(f'Supabase error in add_checklist_item: {e}')
+        return None
+
+
+def update_checklist_item_status(item_id, new_status):
+    """Atualiza status de um item do checklist."""
+    try:
+        supabase = get_supabase()
+        data = {'status': new_status, 'updated_at': 'now()'}
+        if new_status == 'done':
+            data['completed_at'] = 'now()'
+        result = supabase.table('client_checklist_items').update(data).eq('id', item_id).execute()
+        return result.data[0] if result.data else None
+    except Exception as e:
+        app.logger.error(f'Supabase error in update_checklist_item_status: {e}')
+        return None
+
+
+def delete_checklist_item(item_id):
+    """Deleta item do checklist."""
+    try:
+        supabase = get_supabase()
+        supabase.table('client_checklist_items').delete().eq('id', item_id).execute()
+        return True
+    except Exception as e:
+        app.logger.error(f'Supabase error in delete_checklist_item: {e}')
+        return False
+
+
+def get_client_checklist_stats(client_id):
+    """Calcula progresso do checklist de um cliente."""
+    items = get_checklist_items(client_id)
+    total = len(items)
+    done = sum(1 for i in items if i['status'] == 'done')
+    in_progress = sum(1 for i in items if i['status'] == 'in_progress')
+    blocked = sum(1 for i in items if i['status'] == 'blocked')
+    pending = total - done - in_progress - blocked
+    pct = (done / total * 100) if total > 0 else 0
+    return {
+        'total': total,
+        'done': done,
+        'in_progress': in_progress,
+        'blocked': blocked,
+        'pending': pending,
+        'pct': round(pct, 0),
+    }
+
+
+def populate_client_checklist_from_template(client_id, replace=False):
+    """Popula o checklist de um cliente com os 32 itens padrão do template.
+
+    Args:
+        client_id: ID do cliente
+        replace: se True, deleta itens existentes com 'from_template' e repopula.
+                 se False (default), pula itens cujo título já existe (idempotente).
+
+    Returns:
+        dict com {added, skipped, total_template}
+    """
+    try:
+        supabase = get_supabase()
+
+        if replace:
+            # Deleta todos os itens do template (mantém os custom)
+            supabase.table('client_checklist_items') \
+                .delete() \
+                .eq('client_id', client_id) \
+                .filter('notes', 'eq', 'from_template') \
+                .execute()
+
+        # Busca títulos já existentes pra não duplicar
+        existing = get_checklist_items(client_id)
+        existing_titles = {i['title'] for i in existing}
+
+        added = 0
+        skipped = 0
+        for category, title, description in TEMPLATE_CHECKLIST:
+            if title in existing_titles and not replace:
+                skipped += 1
+                continue
+            data = {
+                'client_id': client_id,
+                'category': category,
+                'title': title,
+                'description': description,
+                'status': 'pending',
+                'priority': 'medium',
+                'notes': 'from_template',  # marca pra distinguir de itens custom
+            }
+            supabase.table('client_checklist_items').insert(data).execute()
+            added += 1
+
+        return {
+            'added': added,
+            'skipped': skipped,
+            'total_template': len(TEMPLATE_CHECKLIST),
+        }
+    except Exception as e:
+        app.logger.error(f'Supabase error in populate_client_checklist_from_template: {e}')
+        return {'added': 0, 'skipped': 0, 'total_template': len(TEMPLATE_CHECKLIST), 'error': str(e)}
+
+
+def get_all_clients_checklist_overview():
+    """Visão agregada: todos os clientes com progresso do checklist + stats por categoria.
+
+    Retorna lista ordenada por % de progresso (mais atrasado primeiro),
+    com contagem por status e por categoria pra cada cliente.
+    """
+    try:
+        supabase = get_supabase()
+        clients = supabase.table('clients').select('*').order('name').execute().data or []
+
+        overview = []
+        total_done_agg = 0
+        total_items_agg = 0
+        total_blocked_agg = 0
+
+        for c in clients:
+            items = get_checklist_items(c['id'])
+            stats = get_client_checklist_stats(c['id'])
+
+            # Breakdown por categoria
+            by_category = {}
+            for cat in CHECKLIST_CATEGORIES.keys():
+                cat_items = [i for i in items if i['category'] == cat]
+                cat_done = sum(1 for i in cat_items if i['status'] == 'done')
+                by_category[cat] = {
+                    'total': len(cat_items),
+                    'done': cat_done,
+                    'pct': round((cat_done / len(cat_items) * 100) if cat_items else 0, 0),
+                }
+
+            overview.append({
+                'id': c['id'],
+                'name': c['name'],
+                'logo': c.get('logo') or '🏢',
+                'color': c.get('color') or '#6366f1',
+                'paid_traffic': c.get('paid_traffic', False),
+                'notes': c.get('notes', ''),
+                'stats': stats,
+                'by_category': by_category,
+            })
+
+            total_done_agg += stats['done']
+            total_items_agg += stats['total']
+            total_blocked_agg += stats['blocked']
+
+        # Ordena por % feito ASC (mais atrasado primeiro) — depois Patricia pode reordenar
+        overview.sort(key=lambda x: (x['stats']['pct'], -x['stats']['total']))
+
+        return {
+            'clients': overview,
+            'aggregate': {
+                'total_clients': len(clients),
+                'total_items': total_items_agg,
+                'total_done': total_done_agg,
+                'total_blocked': total_blocked_agg,
+                'avg_pct': round((total_done_agg / total_items_agg * 100) if total_items_agg > 0 else 0, 0),
+            },
+        }
+    except Exception as e:
+        app.logger.error(f'Supabase error in get_all_clients_checklist_overview: {e}')
+        return {
+            'clients': [],
+            'aggregate': {
+                'total_clients': 0,
+                'total_items': 0,
+                'total_done': 0,
+                'total_blocked': 0,
+                'avg_pct': 0,
+            },
+        }
+
+
+def find_checklist_item_by_text(client_id, search_text):
+    """Encontra item do checklist por match parcial do título (case-insensitive).
+
+    Usado pelo helper de chat: Patricia fala "marquei o item de bio do Instagram
+    do EconoClub" e eu acho o item real.
+    """
+    items = get_checklist_items(client_id)
+    search_lower = search_text.lower().strip()
+
+    # Match exato primeiro
+    for item in items:
+        if search_lower == item['title'].lower():
+            return item
+
+    # Match parcial (substring)
+    matches = []
+    for item in items:
+        if search_lower in item['title'].lower():
+            matches.append(item)
+
+    if len(matches) == 1:
+        return matches[0]
+    if len(matches) > 1:
+        return matches  # ambíguo, retorna lista pra Patricia escolher
+
+    # Match por palavras-chave (cada palavra deve aparecer)
+    keywords = search_lower.split()
+    matches = []
+    for item in items:
+        title_lower = item['title'].lower()
+        if all(kw in title_lower for kw in keywords if len(kw) > 3):
+            matches.append(item)
+
+    return matches if matches else None
+
+
+# ─────────────────────────────────────────────────────────────
 # DECORATORS
 # ─────────────────────────────────────────────────────────────
 
@@ -703,6 +1015,153 @@ def lead_delete(lead_id):
     else:
         flash('Erro ao deletar.', 'error')
     return redirect(url_for('leads_list'))
+
+
+# ─────────────────────────────────────────────────────────────
+# ROUTES — CHECKLIST DE MELHORIAS POR CLIENTE
+# ─────────────────────────────────────────────────────────────
+
+@app.route('/admin/clientes/<client_id>/checklist', methods=['GET', 'POST'])
+@login_required
+@admin_required
+def client_checklist(client_id):
+    """Lista de melhorias do cliente + adicionar novo item."""
+    client = get_client_by_id(client_id)
+    if not client:
+        flash('Cliente não encontrado.', 'error')
+        return redirect(url_for('admin_home'))
+
+    if request.method == 'POST':
+        # Adicionar novo item
+        title = request.form.get('title', '').strip()
+        category = request.form.get('category', 'custom')
+        if title:
+            add_checklist_item(
+                client_id=client_id,
+                category=category,
+                title=title,
+                description=request.form.get('description', '').strip() or None,
+                priority=request.form.get('priority', 'medium'),
+                assigned_to=request.form.get('assigned_to', '').strip() or None,
+            )
+            flash(f'✅ Item "{title}" adicionado!', 'success')
+        return redirect(url_for('client_checklist', client_id=client_id))
+
+    items = get_checklist_items(client_id)
+    stats = get_client_checklist_stats(client_id)
+    # Verifica se já tem itens do template (pra mostrar/esconder botão de auditar)
+    has_template = any(i.get('notes') == 'from_template' for i in items)
+    return render_template(
+        'client_checklist.html',
+        client=client,
+        items=items,
+        stats=stats,
+        status_labels=CHECKLIST_STATUSES,
+        category_labels=CHECKLIST_CATEGORIES,
+        has_template_items=has_template,
+        user_name=session.get('user_name'),
+    )
+
+
+@app.route('/admin/clientes/<client_id>/checklist/auditar', methods=['POST'])
+@login_required
+@admin_required
+def client_checklist_auditar(client_id):
+    """Popula o checklist do cliente com os 32 itens padrão do template."""
+    client = get_client_by_id(client_id)
+    if not client:
+        flash('Cliente não encontrado.', 'error')
+        return redirect(url_for('admin_home'))
+
+    replace = request.form.get('replace', 'false') == 'true'
+    result = populate_client_checklist_from_template(client_id, replace=replace)
+
+    if result.get('error'):
+        flash(f'❌ Erro ao popular template: {result["error"]}', 'error')
+    elif replace:
+        flash(f'🌱 Template repopulado! {result["added"]} itens adicionados (substituindo anteriores).', 'success')
+    else:
+        flash(f'🌱 {result["added"]} itens adicionados do template! ({result["skipped"]} já existiam — não duplicados)', 'success')
+
+    return redirect(url_for('client_checklist', client_id=client_id))
+
+
+@app.route('/admin/checklist-overview')
+@login_required
+@admin_required
+def checklist_overview():
+    """Visão geral de TODOS os clientes com seus checklists (ranking)."""
+    sort = request.args.get('sort', 'atrasado')  # 'atrasado' | 'avancado' | 'nome' | 'bloqueado'
+    category_filter = request.args.get('category', '')
+
+    overview = get_all_clients_checklist_overview()
+    clients_list = overview['clients']
+
+    # Aplica filtro/ordenação
+    if sort == 'avancado':
+        clients_list.sort(key=lambda x: -x['stats']['pct'])
+    elif sort == 'nome':
+        clients_list.sort(key=lambda x: x['name'].lower())
+    elif sort == 'bloqueado':
+        clients_list.sort(key=lambda x: -x['stats']['blocked'])
+    # default: 'atrasado' (já vem ordenado do helper)
+
+    return render_template(
+        'checklist_overview.html',
+        clients=clients_list,
+        aggregate=overview['aggregate'],
+        category_labels=CHECKLIST_CATEGORIES,
+        sort=sort,
+        category_filter=category_filter,
+        user_name=session.get('user_name'),
+    )
+
+
+@app.route('/admin/checklist/<item_id>/status', methods=['POST'])
+@login_required
+@admin_required
+def checklist_update_status(item_id):
+    """Marca item como feito, em andamento, etc."""
+    new_status = request.form.get('status', '')
+    if new_status not in CHECKLIST_STATUSES:
+        flash('Status inválido.', 'error')
+        return redirect(request.referrer or url_for('admin_home'))
+
+    # Buscar item pra pegar o client_id pro redirect
+    try:
+        supabase = get_supabase()
+        item = supabase.table('client_checklist_items').select('client_id').eq('id', item_id).execute()
+        client_id = item.data[0]['client_id'] if item.data else None
+    except Exception:
+        client_id = None
+
+    update_checklist_item_status(item_id, new_status)
+    emoji, label = CHECKLIST_STATUSES[new_status]
+    flash(f'{emoji} Item marcado: {label}', 'success')
+
+    if client_id:
+        return redirect(url_for('client_checklist', client_id=client_id))
+    return redirect(url_for('admin_home'))
+
+
+@app.route('/admin/checklist/<item_id>/delete', methods=['POST'])
+@login_required
+@admin_required
+def checklist_delete(item_id):
+    """Deleta item do checklist."""
+    try:
+        supabase = get_supabase()
+        item = supabase.table('client_checklist_items').select('client_id').eq('id', item_id).execute()
+        client_id = item.data[0]['client_id'] if item.data else None
+    except Exception:
+        client_id = None
+
+    delete_checklist_item(item_id)
+    flash('Item removido.', 'success')
+
+    if client_id:
+        return redirect(url_for('client_checklist', client_id=client_id))
+    return redirect(url_for('admin_home'))
 
 
 # ─────────────────────────────────────────────────────────────
